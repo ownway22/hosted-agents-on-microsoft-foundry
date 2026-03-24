@@ -1,63 +1,119 @@
 # 將 Agent Framework Agent 容器化並部署至 Microsoft Foundry
 
-![架構圖](architecture-diagram-hosted-agents.png)
-
-**一句話摘要：** 把你的 [Agent Framework](https://github.com/microsoft/agent-framework) Agent 包進 Docker 容器，推上 Azure Container Registry，再透過 [Microsoft Foundry](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents) 以受管理服務的方式運行。
+把你的 [Agent Framework](https://github.com/microsoft/agent-framework) Agent 包進 Docker 容器，推上 Azure Container Registry，再透過 [Microsoft Foundry](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents) 以受管理服務的方式運行。
 
 > 內附的 HR Agent 僅為範例，你可以替換成任何 Agent Framework Agent。
 
 ---
 
-## 運作原理
+## 目錄
 
-Hosted Agent 本質上就是一個 Docker 容器，裡面跑著一台 HTTP 伺服器。Foundry 幫你管擴縮、身分識別和網路 — 你只要給它一個容器映像就好。
-
-核心是 **Hosting Adapter**（`from_agent_framework()`），它把你的 `ChatAgent` 包成 Uvicorn 網頁伺服器：
-
-```
-ChatAgent  →  from_agent_framework(agent).run()  →  HTTP 伺服器 (:8088)
-                                                       ├── POST /responses   （接收訊息）
-                                                       └── GET  /readiness   （健康檢查）
-```
-
-流程很簡單：Foundry 把使用者訊息送到 `POST /responses` → 你的 Agent 處理 → 回應從同一端點回傳。
+1. [運作原理](#運作原理)
+2. [先決條件](#先決條件)
+3. [本機測試](#本機測試)
+4. [部署到 Foundry](#部署到-foundry)
+5. [換成你自己的 Agent](#換成你自己的-agent)
+6. [專案結構](#專案結構)
+7. [核心概念](#核心概念)
+8. [參考資料](#參考資料)
 
 ---
 
-## 操作步驟
+## 運作原理
 
-### 步驟 1：準備你的 Agent
+Hosted Agent 就是一個 Docker 容器，裡面跑著 HTTP 伺服器。Foundry 幫你管擴縮、身分識別和網路 — 你只要給它一個容器映像。
 
-`original/hr_agent.py` 是一個範例 — 用 Azure AI Search 回答 HR 問題的獨立 Agent。它只是讓你看容器化「之前」的 Agent 長什麼樣子，**不會**在容器裡執行。
+核心是 **Hosting Adapter**（`from_agent_framework()`），它把你的 `ChatAgent` 包成 HTTP 伺服器：
 
-你可以直接用範例，也可以換成任何你自己的 Agent Framework Agent。
+```
+你的 ChatAgent  →  from_agent_framework(agent).run()  →  HTTP 伺服器 (:8088)
+                                                           ├── POST /responses   （收發訊息）
+                                                           └── GET  /readiness   （健康檢查）
+```
 
-### 步驟 2：改寫為 Hosted Agent（`main.py`）
+流程：Foundry 把使用者訊息送到 `POST /responses` → Agent 處理 → 回應從同一端點回傳。
 
-`main.py` 是整個容器化的核心，負責把 Agent 邏輯接上 Hosting Adapter。
+![架構圖](architecture-diagram-hosted-agents.png)
 
-**必須做的 4 件事：**
+```mermaid
+graph TD
+    subgraph foundry ["Microsoft Foundry"]
+        ACR["ACR"]
+        Agent["Hosted Agent<br/>（容器）:8088"]
+        OpenAI["Azure OpenAI<br/>(gpt-4.1)"]
+        Search["Azure AI Search<br/>（知識庫）"]
 
-1. 用 `ChatAgent`（不是 `Agent`）
-2. 用**同步的** `DefaultAzureCredential`（Adapter 內部會自己處理非同步）
-3. 設定你的指令和 Context Provider 來建立 `ChatAgent`
-4. 呼叫 `from_agent_framework(agent).run()` 啟動伺服器
+        ACR -- "拉取映像" --> Agent
+        Agent -- "呼叫" --> OpenAI
+        Agent -- "呼叫" --> Search
+    end
+```
 
-**換成你自己的 Agent 時，只要改這些：**
-- `HR_INSTRUCTIONS` → 你的 System Prompt
-- `AzureAISearchContextProvider` → 你需要的 Context Provider（不需要就填 `context_providers=[]`）
-- `ChatAgent` 的 `name` 和 `id`
+---
 
-### 步驟 3：打包為 Docker 映像
+## 先決條件
+
+### 本機工具
+
+| 工具 | 用途 |
+|---|---|
+| **Python 3.12+** | 執行 Agent |
+| **[Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)** | `az login`、ACR 操作 |
+| **[Docker](https://docs.docker.com/get-docker/)** | 建置容器映像 |
+
+### Azure 資源
+
+| 資源 | 用途 | 必要？ |
+|---|---|---|
+| **[Microsoft Foundry 專案](https://learn.microsoft.com/en-us/azure/foundry/foundry-portal/create-project)** | 託管 Agent、管理生命週期 | 是 |
+| **[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)** 模型部署 | 提供 LLM 能力（如 `gpt-4.1`） | 是 |
+| **[ACR](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-intro)** | 儲存 Docker 映像 | 是 |
+| **[Azure AI Search](https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search)** | 知識庫 Grounding | 僅在需要時 |
+
+> **RBAC 提醒：** Foundry 的 Managed Identity 需要 ACR 的 **AcrPull** 角色；若用 AI Search，還需 **Search Index Data Reader**。
+
+---
+
+## 本機測試
+
+先在本機跑起來確認 Agent 正常，再部署到 Foundry。
 
 ```bash
-# 建置映像（務必指定 linux/amd64 — Foundry 在 AMD64 上執行）
+# 1. 複製環境變數範本並填入設定值
+cp .env.example .env
+
+# 2. 安裝相依套件
+pip install --pre -r requirements.txt
+
+# 3. 登入 Azure（本機沒有 Managed Identity，需要手動登入）
+az login
+
+# 4. 啟動 Agent
+python main.py
+```
+
+Agent 跑起來後，開另一個終端機測試：
+
+```bash
+curl -X POST http://localhost:8088/responses \
+  -H "Content-Type: application/json" \
+  -d '{"input": "What is the PTO policy?", "stream": false}'
+```
+
+---
+
+## 部署到 Foundry
+
+確認本機運行正常後，依序完成以下四步：
+
+### 第 1 步：建置 Docker 映像
+
+```bash
+# 務必指定 linux/amd64 — Foundry 在 AMD64 上執行
 docker build --platform linux/amd64 -t my-agent:latest .
 ```
 
-Dockerfile 使用 Python 3.12、`uv` 安裝相依套件，進入點是 `python main.py`，對外開放 port 8088。
-
-### 步驟 4：推送至 Azure Container Registry (ACR)
+### 第 2 步：推送至 Azure Container Registry (ACR)
 
 ```bash
 # 建立 ACR（僅需一次）
@@ -69,9 +125,9 @@ docker tag my-agent:latest <your-acr-name>.azurecr.io/my-agent:latest
 docker push <your-acr-name>.azurecr.io/my-agent:latest
 ```
 
-### 步驟 5：註冊 Agent（`deploy.py`）
+### 第 3 步：註冊 Agent（`deploy.py`）
 
-`deploy.py` 透過 SDK 告訴 Foundry 你的容器在哪裡、需要什麼環境變數：
+透過 SDK 告訴 Foundry 你的容器在哪裡、需要什麼環境變數：
 
 ```bash
 # 設定環境變數
@@ -84,13 +140,42 @@ az login
 uv run deploy.py
 ```
 
-**換成你自己的 Agent 時**，修改 `deploy.py` 裡的 `AGENT_NAME`、`description` 和 `environment_variables`。
-
-### 步驟 5：啟動 Agent
+### 第 4 步：啟動 Agent
 
 **Foundry 入口網站** → **Agents** → 找到你的 Agent → **Start**。
 
 Foundry 會自動拉取映像、啟動容器、開始路由請求。
+
+---
+
+## 換成你自己的 Agent
+
+只要改兩個檔案、三個地方：
+
+### `main.py`（容器進入點）
+
+| 要改的地方 | 說明 |
+|---|---|
+| `HR_INSTRUCTIONS` | 換成你的 System Prompt |
+| `AzureAISearchContextProvider` | 換成你的 Context Provider（不需要就填 `context_providers=[]`） |
+| `ChatAgent` 的 `name` 和 `id` | 換成你的 Agent 名稱 |
+
+注意：必須用 `ChatAgent`（不是 `Agent`）、同步的 `DefaultAzureCredential`、最後一行 `from_agent_framework(agent).run()` 不要動。
+
+### `deploy.py`（註冊腳本）
+
+改 `AGENT_NAME`、`description` 和 `environment_variables`。
+
+### 對照表：原始 Agent vs. Hosted Agent
+
+| | 原始（`original/hr_agent.py`） | Hosted（`main.py`） |
+|---|---|---|
+| **類別** | `Agent` | `ChatAgent` |
+| **執行方式** | 單次腳本（`asyncio.run`） | 長駐 HTTP 伺服器（Uvicorn :8088） |
+| **認證** | 非同步 `DefaultAzureCredential` | 同步 `DefaultAzureCredential` |
+| **進入點** | `asyncio.run(main())` | `from_agent_framework(agent).run()` |
+| **打包** | Python 腳本 | Docker 容器 |
+| **部署** | 本機執行 | Foundry 受管理服務 |
 
 ---
 
@@ -119,70 +204,12 @@ hosted-agents-on-microsoft-foundry/
 | `deploy.py` | 透過 SDK 在 Foundry 註冊 Agent | **是** — 改名稱、描述、環境變數 |
 | `Dockerfile` | 定義容器映像的建置流程 | 通常不用 |
 | `requirements.txt` | 鎖定版本的 Python 相依套件 | 有新套件才改 |
-| `pyproject.toml` | Python 專案中繼資料與建置設定 | 通常不用 |
 | `agent.yaml` | `deploy.py` 的替代方案（供 azd CLI） | 選用 |
 | `.env.example` | 環境變數範本 | 複製為 `.env` 後填值 |
 | `original/hr_agent.py` | 容器化前的範例 Agent | 不用（僅供參考） |
 | `enterprise/` | 企業級架構（詳見 [enterprise/README.md](enterprise/README.md)） | 進階需求才用 |
 
----
-
-## 對照表：原始 Agent vs. Hosted Agent
-
-| | 原始（`original/hr_agent.py`） | Hosted（`main.py`） |
-|---|---|---|
-| **類別** | `Agent` | `ChatAgent` |
-| **執行方式** | 單次腳本（`asyncio.run`） | 長駐 HTTP 伺服器（Uvicorn :8088） |
-| **認證** | 非同步 `DefaultAzureCredential` | 同步 `DefaultAzureCredential` |
-| **進入點** | `asyncio.run(main())` | `from_agent_framework(agent).run()` |
-| **對外介面** | 無（輸出至終端機） | REST API |
-| **打包** | Python 腳本 | Docker 容器 |
-| **部署** | 本機執行 | Foundry 受管理服務 |
-| **可觀測性** | 無 | OpenTelemetry |
-
----
-
-## 先決條件
-
-### 本機工具
-
-| 工具 | 用途 |
-|---|---|
-| **Python 3.12+** | 執行 Agent |
-| **[Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)** | `az login`、ACR 操作 |
-| **[Docker](https://docs.docker.com/get-docker/)** | 建置容器映像 |
-
-### Azure 資源
-
-| 資源 | 用途 | 必要？ |
-|---|---|---|
-| **[Microsoft Foundry 專案](https://learn.microsoft.com/en-us/azure/foundry/foundry-portal/create-project)** | 託管 Agent、管理生命週期 | 是 |
-| **[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)** 模型部署 | 提供 LLM 能力（如 `gpt-4.1`） | 是 |
-| **[ACR](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-intro)** | 儲存 Docker 映像 | 是 |
-| **[Azure AI Search](https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search)** | 知識庫 Grounding | 僅在需要時 |
-| **Storage Account** | Foundry 自動建立，無需操作 | 自動 |
-
-> **RBAC 提醒：** Foundry 的 Managed Identity 需要 ACR 的 **AcrPull** 角色；若用 AI Search，還需 **Search Index Data Reader**。
-
-### 架構圖
-
-```mermaid
-graph TD
-    subgraph foundry ["Microsoft Foundry"]
-        ACR["ACR"]
-        Agent["Hosted Agent<br/>（容器）:8088"]
-        OpenAI["Azure OpenAI<br/>(gpt-4.1)"]
-        Search["Azure AI Search<br/>（知識庫）"]
-
-        ACR -- "拉取映像" --> Agent
-        Agent -- "呼叫" --> OpenAI
-        Agent -- "呼叫" --> Search
-    end
-```
-
----
-
-## 相依套件
+### 相依套件
 
 | 套件 | 用途 |
 |---|---|
@@ -194,31 +221,6 @@ graph TD
 | `azure-identity` | Azure 驗證 |
 
 > 全部都是預覽版，安裝時要加 `--pre`。
-
----
-
-## 本機測試
-
-```bash
-# 1. 複製環境變數並填入設定值
-cp .env.example .env
-
-# 2. 安裝相依套件
-pip install --pre -r requirements.txt
-
-# 3. 啟動 Agent（本機需先 az login）
-python main.py
-```
-
-Agent 跑起來後，用 curl 測試：
-
-```bash
-curl -X POST http://localhost:8088/responses \
-  -H "Content-Type: application/json" \
-  -d '{"input": "What is the PTO policy?", "stream": false}'
-```
-
-> **注意：** 本機沒有 Managed Identity，所以要先 `az login` 取得認證。
 
 ---
 

@@ -1,9 +1,9 @@
-"""Deploy the HR hosted agent to Microsoft Foundry — Enterprise version.
+"""將 HR Hosted Agent 部署至 Microsoft Foundry — 企業版。
 
-Identical to Part 1. The infrastructure (VNET, CMK, MI) is handled by Bicep.
-This script just registers the container image with Foundry.
+與第一部分相同。基礎設施（VNET、CMK、MI）由 Bicep 處理。
+此腳本僅負責在 Foundry 中註冊容器映像。
 
-Usage:
+使用方式：
     az login
     python deploy.py
 """
@@ -21,7 +21,7 @@ from azure.ai.projects.models import (
 from azure.identity import DefaultAzureCredential
 
 PROJECT_ENDPOINT = os.environ["AZURE_AI_PROJECT_ENDPOINT"]
-CONTAINER_IMAGE = os.environ["CONTAINER_IMAGE"]  # e.g. yourregistry.azurecr.io/hosted-agents-on-microsoft-foundry:latest
+CONTAINER_IMAGE = os.environ["CONTAINER_IMAGE"]  # 例如 yourregistry.azurecr.io/hosted-agents-on-microsoft-foundry:latest
 SEARCH_ENDPOINT = os.environ["AZURE_SEARCH_ENDPOINT"]
 MODEL_DEPLOYMENT_NAME = os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-4.1")
 

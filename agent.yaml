@@ -1,11 +1,11 @@
-# Unique identifier/name for this agent
+# 此 Agent 的唯一識別名稱
 name: hosted-agents-on-microsoft-foundry
-# Brief description of what this agent does
+# 簡要描述此 Agent 的功能
 description: >
-  An HR specialist agent for Zava Corporation that answers questions about
-  HR policies, PTO, benefits, and employee handbook using an Azure AI Search
-  knowledge base. Transformed from a standalone Agent Framework agent into a
-  containerized hosted agent for Microsoft Foundry.
+  Zava Corporation 的 HR 專員 Agent，使用 Azure AI Search
+  知識庫回答有關 HR 政策、PTO、福利及員工手冊的問題。
+  從獨立的 Agent Framework Agent 改造為容器化的 Hosted Agent，
+  部署於 Microsoft Foundry。
 metadata:
   authors:
     - Your Name

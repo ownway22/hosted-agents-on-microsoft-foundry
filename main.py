@@ -1,21 +1,19 @@
-"""Hosted agent entry point — containerizes an Agent Framework agent for Microsoft Foundry.
+"""Hosted Agent 進入點 — 容器化你的 Agent 並部署至 Microsoft Foundry。
 
-This file is the ONLY file that matters for containerization. It takes your agent logic
-and wraps it with the hosting adapter so Foundry can run it as a managed service.
+這個檔案做三件事：
+    1. 讀取環境變數（Foundry 專案端點、模型名稱等）
+    2. 用你的邏輯建立 ChatAgent
+    3. 透過 Hosting Adapter 啟動 HTTP 伺服器，讓 Foundry 能收發訊息
 
-HOW TO ADAPT THIS TO YOUR OWN AGENT:
-    1. Replace the instructions (HR_INSTRUCTIONS) with your own agent's instructions.
-    2. Replace/remove the context providers (AzureAISearchContextProvider) with whatever
-       your agent needs — or use none if your agent doesn't need grounding data.
-    3. Update the agent name and id to match your agent.
-    4. The last line (from_agent_framework(agent).run()) NEVER changes — it starts
-       the HTTP server on port 8088 that Foundry communicates with.
+換成你自己的 Agent 只要改三個地方：
+    - HR_INSTRUCTIONS → 你的 System Prompt
+    - AzureAISearchContextProvider → 你的 Context Provider（不需要就留空 []）
+    - ChatAgent 的 name 和 id
 
-REQUIRED:
-    - ChatAgent (not Agent) — the hosting adapter requires this class.
-    - from_agent_framework() — wraps your ChatAgent into a Uvicorn HTTP server.
-    - Sync DefaultAzureCredential (not async) — the adapter manages the async lifecycle.
-    - Environment variables for configuration (set in deploy.py or agent.yaml, NOT .env).
+注意事項：
+    - 必須用 ChatAgent（不是 Agent）— Hosting Adapter 只接受這個類別
+    - 必須用同步的 DefaultAzureCredential — Adapter 內部自己處理非同步
+    - 最後一行 from_agent_framework(agent).run() 不要動 — 那是啟動伺服器的
 """
 
 import os
@@ -23,13 +21,27 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-# --- OpenTelemetry (OPTIONAL — remove if you don't need tracing) ---
-# Instruments Azure SDK calls and exports traces to Azure Monitor / Application Insights.
+# ── 匯入 ──────────────────────────────────────────────────────────────────
+
+from azure.identity import DefaultAzureCredential
+from agent_framework import ChatAgent
+from agent_framework.azure import AzureAIAgentClient, AzureAISearchContextProvider
+from azure.ai.agentserver.agentframework import from_agent_framework
+
+# OpenTelemetry（選用 — 不需要追蹤時整段移除即可）
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
+# ── 環境變數 ──────────────────────────────────────────────────────────────
+# 部署時由 deploy.py 設定；本機測試時從 .env 讀取
+
+PROJECT_ENDPOINT = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
+MODEL = os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-4.1")
+SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
 APPLICATIONINSIGHTS_CONNECTION_STRING = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING")
+
+# ── OpenTelemetry 初始化（選用）────────────────────────────────────────────
 
 if APPLICATIONINSIGHTS_CONNECTION_STRING:
     from azure.monitor.opentelemetry.exporter import AzureMonitorTraceExporter
@@ -42,39 +54,12 @@ if APPLICATIONINSIGHTS_CONNECTION_STRING:
     )
     trace.set_tracer_provider(provider)
 
-# --- Azure identity (REQUIRED) ---
-# Use the SYNC credential. The hosting adapter handles async internally.
-from azure.identity import DefaultAzureCredential
-
-# --- Agent Framework (REQUIRED) ---
-# ChatAgent is the class compatible with the hosting adapter.
-from agent_framework import ChatAgent
-
-# --- Azure AI integrations (OPTIONAL — depends on your agent) ---
-# AzureAIAgentClient: connects your agent to a Foundry project + model deployment.
-# AzureAISearchContextProvider: gives your agent access to an Azure AI Search knowledge base.
-# Remove or replace these if your agent uses different tools/providers.
-from agent_framework.azure import AzureAIAgentClient, AzureAISearchContextProvider
-
-# --- Hosting adapter (REQUIRED — this is what makes containerization work) ---
-# from_agent_framework() wraps your ChatAgent into an HTTP server on port 8088.
-# It exposes POST /responses (OpenAI Responses API) and GET /readiness (health check).
-from azure.ai.agentserver.agentframework import from_agent_framework
-
-# ---------------------------------------------------------------------------
-# Configuration — these come from environment variables set in deploy.py.
-# When running locally, set them in your shell or a .env file.
-# ---------------------------------------------------------------------------
-PROJECT_ENDPOINT = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
-MODEL = os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-4.1")
-SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
+# ── 認證 ──────────────────────────────────────────────────────────────────
 
 _credential = DefaultAzureCredential()
 
-# ---------------------------------------------------------------------------
-# YOUR AGENT LOGIC BELOW — replace this with your own agent's setup.
-# See original/hr_agent.py for the standalone version this was adapted from.
-# ---------------------------------------------------------------------------
+# ── Agent 邏輯（這裡替換成你的）──────────────────────────────────────────
+# 原始版本可參考 original/hr_agent.py
 
 HR_INSTRUCTIONS = """You are an HR Specialist Agent for Zava Corporation.
 Answer questions about HR policies, PTO, benefits, and employee handbook using the knowledge base.
@@ -82,16 +67,15 @@ Be specific and cite sources when possible."""
 
 
 def main():
-    # Step 1: Create the AI client (connects to your Foundry project + model)
+    # 1. 建立 AI 用戶端 — 連接 Foundry 專案和模型
     client = AzureAIAgentClient(
         project_endpoint=PROJECT_ENDPOINT,
         model_deployment_name=MODEL,
         credential=_credential,
     )
 
-    # Step 2: Create context providers (optional — remove if your agent doesn't need them)
-    # This example uses Azure AI Search to ground the agent with an HR knowledge base.
-    # TODO: Uncomment when kb1-hr index is created in AI Search
+    # 2. 建立 Context Provider（選用 — 不需要知識庫就跳過）
+    # TODO: 在 AI Search 建好 kb1-hr 索引後取消註解
     # kb_context = AzureAISearchContextProvider(
     #     endpoint=SEARCH_ENDPOINT,
     #     knowledge_base_name="kb1-hr",
@@ -100,22 +84,18 @@ def main():
     #     knowledge_base_output_mode="answer_synthesis",
     # )
 
-    # Step 3: Build the ChatAgent
-    # - name/id: identifier for this agent
-    # - instructions: your agent's system prompt
-    # - context_providers: list of knowledge sources (can be empty [])
+    # 3. 組裝 ChatAgent
     agent = ChatAgent(
         client,
         name="hr-agent",
         id="hr-agent",
         instructions=HR_INSTRUCTIONS,
-        context_providers=[],  # TODO: Add [kb_context] when AI Search index is ready
+        context_providers=[],  # TODO: 索引就緒後改為 [kb_context]
     )
 
-    # Step 4: Start the hosted agent server (NEVER CHANGES)
-    # This starts a Uvicorn server on port 8088 with:
-    #   POST /responses  — receives user messages, returns agent responses
-    #   GET  /readiness  — health check for Foundry
+    # 4. 啟動 HTTP 伺服器（這行不要動）
+    #    POST /responses — 接收訊息、回傳 Agent 回應
+    #    GET  /readiness — 健康檢查
     from_agent_framework(agent).run()
 
 

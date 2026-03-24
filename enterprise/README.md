@@ -1,20 +1,20 @@
-# Part 2: Enterprise Setup — Hosted Agent + Foundry IQ + MAF Architecture
+# 第二部分：企業級架構 — Hosted Agent + Foundry IQ + MAF Architecture
 
-**Same agent. Same code. Enterprise-grade infrastructure.**
+**同一個 Agent、同一份程式碼、企業級基礎設施。**
 
-This is **Part 2** of the [Hosted Agent tutorial](../README.md). It deploys the exact same HR agent from Part 1, but on enterprise infrastructure with:
+這是 [Hosted Agent 教學](../README.md) 的**第二部分**。它部署的是與第一部分完全相同的 HR Agent，但運行在企業級基礎設施上：
 
-| Enterprise Feature | What It Does |
+| 企業功能 | 說明 |
 |---|---|
-| **Customer-Managed Keys (CMK)** | All data at rest encrypted with YOUR key from YOUR Key Vault |
-| **Keyless Auth (Managed Identity)** | Zero API keys anywhere — all auth via User-Assigned Managed Identity + RBAC |
-| **Private Endpoints** | Every service behind a VNET — no public internet exposure |
+| **Customer-Managed Keys (CMK)** | 所有靜態資料皆使用你自己的 Key Vault 中的金鑰加密 |
+| **無金鑰驗證（Managed Identity）** | 全程零 API 金鑰 — 所有驗證透過 User-Assigned Managed Identity + RBAC |
+| **Private Endpoint** | 每個服務都在 VNET 後方 — 不暴露於公開網際網路 |
 
-> **Key insight:** Your application code does not change. `main.py`, `deploy.py`, `Dockerfile` — all identical to Part 1. The enterprise security is entirely in the infrastructure layer (Bicep).
+> **關鍵觀念：** 你的應用程式碼完全不需要修改。`main.py`、`deploy.py`、`Dockerfile` — 皆與第一部分相同。企業級安全性完全在基礎設施層（Bicep）處理。
 
 ---
 
-## Architecture
+## 架構
 
 ```
 ┌──────────────────── Virtual Network (10.0.0.0/16) ────────────────────┐
@@ -22,7 +22,7 @@ This is **Part 2** of the [Hosted Agent tutorial](../README.md). It deploys the 
 │  Private Endpoints Subnet (10.0.1.0/24)                               │
 │  ┌────────────────────────────────────────────────────────────────┐   │
 │  │                                                                │   │
-│  │   ┌───────────────── Azure AI Foundry ─────────────────┐      │   │
+│  │   ┌──────────────── Microsoft Foundry ──────────────────┐      │   │
 │  │   │                                                     │      │   │
 │  │   │  ┌──────────────┐       ┌──────────────────────┐   │      │   │
 │  │   │  │ Hosted Agent  │──MI──▶│ AI Services (OpenAI)  │   │      │   │
@@ -42,163 +42,160 @@ This is **Part 2** of the [Hosted Agent tutorial](../README.md). It deploys the 
 │  │   └──────────┘  └───────────┘  └──────────────────────┘      │   │
 │  └────────────────────────────────────────────────────────────────┘   │
 │                                                                        │
-│  🔐 User-Assigned Managed Identity (single identity, all RBAC roles) │
-│  🔑 Customer-Managed Key from Key Vault (RSA-2048, all data at rest)  │
-│  🔒 Private Endpoints + Private DNS Zones (zero public exposure)      │
+│  🔐 User-Assigned Managed Identity（單一身分識別，所有 RBAC 角色） │
+│  🔑 來自 Key Vault 的 Customer-Managed Key（RSA-2048，所有靜態資料） │
+│  🔒 Private Endpoint + Private DNS Zone（零公開暴露）              │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-### What's different from Part 1
+### 與第一部分的差異
 
-| Aspect | Part 1 (Standard) | Part 2 (Enterprise) |
+| 面向 | 第一部分（標準版） | 第二部分（企業版） |
 |---|---|---|
-| **Network** | Public endpoints | Private endpoints + VNET |
-| **Encryption** | Microsoft-managed keys | Customer-managed keys (CMK) from your Key Vault |
-| **Authentication** | DefaultAzureCredential (any method) | Managed Identity only — API keys disabled on ALL services |
-| **Key Vault** | Not needed | RBAC-only, purge-protected, soft-delete enabled |
-| **ACR** | Basic SKU | Premium SKU (required for PE + CMK) |
+| **網路** | 公開端點 | Private Endpoint + VNET |
+| **加密** | Microsoft 管理的金鑰 | Customer-Managed Keys (CMK)，來自你自己的 Key Vault |
+| **驗證** | DefaultAzureCredential（任何方式） | 僅限 Managed Identity — 所有服務的 API 金鑰皆停用 |
+| **Key Vault** | 不需要 | 僅限 RBAC、啟用清除保護、啟用虛刪除 |
+| **ACR** | Basic SKU | Premium SKU（Private Endpoint + CMK 所需） |
 | **AI Services** | `disableLocalAuth: false` | `disableLocalAuth: true` |
-| **AI Search** | API keys available | `disableLocalAuth: true`, CMK enforcement enabled |
-| **Storage** | Shared key access | `allowSharedKeyAccess: false` |
-| **Service auth** | Key-based connections | Identity-based (MI + RBAC, no keys) |
-| **App code** | `main.py` | **Identical** — no changes needed |
+| **AI Search** | 可使用 API 金鑰 | `disableLocalAuth: true`，啟用 CMK 強制加密 |
+| **Storage** | 共用金鑰存取 | `allowSharedKeyAccess: false` |
+| **服務驗證** | 金鑰式連線 | 身分識別式（MI + RBAC，無金鑰） |
+| **應用程式碼** | `main.py` | **完全相同** — 不需修改 |
 
 ---
 
-## Project Structure
+## 專案結構
 
 ```
 enterprise/
-├── infra/                              # 🏗️  Bicep infrastructure-as-code
-│   ├── main.bicep                      #     Orchestrator — deploys everything
+├── infra/                              # 🏗️  Bicep 基礎設施即程式碼
+│   ├── main.bicep                      #     協調器 — 部署所有資源
 │   └── modules/
-│       ├── managed-identity.bicep      #     User-assigned MI (single identity)
-│       ├── network.bicep               #     VNET + subnets + 7 private DNS zones
-│       ├── keyvault.bicep              #     Key Vault + CMK key + PE
-│       ├── storage.bicep               #     Storage + CMK + PE (blob + file)
-│       ├── ai-services.bicep           #     AI Services + model + Foundry project + CMK + PE
-│       ├── ai-search.bicep             #     AI Search + CMK enforcement + PE
+│       ├── managed-identity.bicep      #     User-Assigned MI（單一身分識別）
+│       ├── network.bicep               #     VNET + 子網路 + 7 個 Private DNS Zone
+│       ├── keyvault.bicep              #     Key Vault + CMK 金鑰 + PE
+│       ├── storage.bicep               #     Storage + CMK + PE（Blob + File）
+│       ├── ai-services.bicep           #     AI Services + 模型 + Foundry 專案 + CMK + PE
+│       ├── ai-search.bicep             #     AI Search + CMK 強制加密 + PE
 │       └── acr.bicep                   #     Container Registry + CMK + PE
-├── main.py                             # ⭐ Agent code (identical to Part 1)
-├── deploy.py                           # 🚀 Register agent in Foundry (identical to Part 1)
-├── deploy-infra.ps1                    # 🏗️  PowerShell script to deploy all infrastructure
-├── Dockerfile                          # 🐳 Container image (identical to Part 1)
-├── requirements.txt                    # 📦 Dependencies (identical to Part 1)
-├── agent.yaml                          # 📄 Agent metadata
-└── README.md                           # 📖 This file
+├── main.py                             # ⭐ Agent 程式碼（與第一部分相同）
+├── deploy.py                           # 🚀 在 Foundry 中註冊 Agent（與第一部分相同）
+├── deploy-infra.ps1                    # 🏗️  部署所有基礎設施的 PowerShell 腳本
+├── Dockerfile                          # 🐳 容器映像（與第一部分相同）
+├── requirements.txt                    # 📦 相依套件（與第一部分相同）
+├── agent.yaml                          # 📄 Agent 中繼資料
+└── README.md                           # 📖 本檔案
 ```
 
 ---
 
-## Prerequisites
+## 先決條件
 
-### Azure permissions
+### Azure 權限
 
-The deployer needs:
-- **Contributor** on the subscription/resource group (to create resources)
-- **User Access Administrator** (to create RBAC role assignments)
-- The deployment script will auto-grant **Key Vault Crypto Officer** for CMK key creation
+部署者需要：
+- 訂用帳戶/資源群組的 **Contributor** 角色（用於建立資源）
+- **User Access Administrator** 角色（用於建立 RBAC 角色指派）
+- 部署腳本會自動授予 **Key Vault Crypto Officer** 以建立 CMK 金鑰
 
-### Local tools
+### 本機工具
 
-- **Azure CLI** (with Bicep) — `az --version` should show Bicep CLI
-- **Docker** — for building locally (optional: `az acr build` does cloud builds without Docker)
-- **Python 3.12+** — for `deploy.py`
-- **PowerShell** — for `deploy-infra.ps1`
+- **Azure CLI**（含 Bicep）— `az --version` 應顯示 Bicep CLI
+- **Docker** — 用於本機建置（選用：`az acr build` 可在雲端建置，無需 Docker）
+- **Python 3.12+** — 用於 `deploy.py`
+- **PowerShell** — 用於 `deploy-infra.ps1`
 
 ---
 
-## Step-by-Step Deployment
+## 逐步部署指南
 
-### Step 1: Deploy Enterprise Infrastructure
+### 步驟 1：部署企業級基礎設施
 
 ```powershell
-# Login to Azure
+# 登入 Azure
 az login
 
-# Deploy everything (VNET, Key Vault, Storage, AI Services + Foundry Project, AI Search, ACR)
+# 部署所有資源（VNET、Key Vault、Storage、AI Services + Foundry 專案、AI Search、ACR）
 cd enterprise
 .\deploy-infra.ps1 -ResourceGroup "rg-hr-agent-enterprise" -Location "eastus2" -Prefix "hragent"
 ```
 
-This creates **all** Azure resources with:
-- ✅ Private endpoints on every service
-- ✅ CMK encryption on Storage, AI Services, ACR (+ CMK enforcement on AI Search)
-- ✅ API keys disabled on AI Services, AI Search, Storage
-- ✅ RBAC roles assigned to the managed identity
+這會建立**所有** Azure 資源，包含：
+- ✅ 每個服務都有 Private Endpoint
+- ✅ Storage、AI Services、ACR 都啟用 CMK 加密（AI Search 啟用 CMK 強制加密）
+- ✅ AI Services、AI Search、Storage 的 API 金鑰皆停用
+- ✅ RBAC 角色已指派給 Managed Identity
 
-The script outputs all the values you need for the next steps.
+腳本會輸出後續步驟所需的所有設定值。
 
-### Step 1.5: Temporarily Enable Public Access (for initial setup)
+### 步驟 1.5：暫時開啟公開存取（用於初始設定）
 
-> **IMPORTANT:** All services are deployed with public access **disabled** by default. To push
-> the container image and register the agent from your local machine, you need to temporarily
-> enable public access. This is the expected workflow for initial setup — you'll lock it back
-> down in Step 5.
+> **重要：** 所有服務預設部署為公開存取**停用**。若要從你的本機推送容器映像和註冊 Agent，
+> 需要暫時開啟公開存取。這是初始設定的預期流程 — 你會在步驟 5 中重新鎖定。
 >
-> In a real enterprise environment, you'd do this from inside the VNET (via VPN, ExpressRoute,
-> or a jumpbox VM with Azure Bastion). For this demo/walkthrough, we temporarily open access.
+> 在實際企業環境中，你會從 VNET 內部操作（透過 VPN、ExpressRoute 或搭配
+> Azure Bastion 的跳板機 VM）。此範例/教學中，我們暫時開啟存取。
 
 ```powershell
-# Enable public access on AI Services
+# 開啟 AI Services 的公開存取
 az cognitiveservices account update -g <rg> -n <ai-services-name> `
     --custom-domain <ai-services-name> `
     --set properties.publicNetworkAccess=Enabled
 
-# Enable public access on ACR
+# 開啟 ACR 的公開存取
 az acr update -n <acr-name> --public-network-enabled true
 
-# Enable public access on AI Search (via REST — the CLI has a bug with UserAssigned identity)
+# 開啟 AI Search 的公開存取（透過 REST — CLI 對 UserAssigned Identity 有 bug）
 az rest --method PATCH `
     --url "https://management.azure.com/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Search/searchServices/<search-name>?api-version=2024-06-01-preview" `
     --headers Content-Type=application/json `
     --body '{"properties":{"publicNetworkAccess":"enabled"}}'
 ```
 
-### Step 2: Build and Push the Container Image
+### 步驟 2：建置並推送容器映像
 
 ```powershell
-# Option A: Cloud build (recommended — works even with private endpoints, no local Docker needed)
+# 方案 A：雲端建置（建議 — 即使有 Private Endpoint 也可運作，無需本機 Docker）
 az acr build --registry <acr-name> --image hosted-agents-on-microsoft-foundry:latest --platform linux/amd64 .
 
-# Option B: Local build + push (requires Docker Desktop running)
+# 方案 B：本機建置 + 推送（需要 Docker Desktop 執行中）
 docker build --platform linux/amd64 -t <acr-login-server>/hosted-agents-on-microsoft-foundry:latest .
 az acr login --name <acr-name>
 docker push <acr-login-server>/hosted-agents-on-microsoft-foundry:latest
 ```
 
-### Step 3: Register the Agent in Foundry
+### 步驟 3：在 Foundry 中註冊 Agent
 
 ```powershell
-# Set environment variables (values from Step 1 output)
+# 設定環境變數（使用步驟 1 輸出的值）
 $env:AZURE_AI_PROJECT_ENDPOINT = "<project-endpoint-from-step-1>"
 $env:AZURE_SEARCH_ENDPOINT = "<search-endpoint-from-step-1>"
 $env:CONTAINER_IMAGE = "<acr-login-server>/hosted-agents-on-microsoft-foundry:latest"
 
-# Deploy
+# 部署
 python deploy.py
 ```
 
-### Step 4: Start the Agent
+### 步驟 4：啟動 Agent
 
-Go to **Azure AI Foundry portal** → **Agents** → find your agent → **Start**.
+前往 **Microsoft Foundry 入口網站** → **Agents** → 找到你的 Agent → **Start**。
 
-### Step 5: Re-Disable Public Access (lock it down)
+### 步驟 5：重新停用公開存取（鎖定）
 
-> After the agent is deployed and running, disable public access again. The hosted agent
-> runs **inside** Foundry's infrastructure and communicates with all services through the
-> private endpoints — it does NOT need public access.
+> Agent 部署並運行後，請重新停用公開存取。Hosted Agent 在 Foundry 的受管理基礎設施
+> **內部**運行，透過 Private Endpoint 與所有服務通訊 — 它不需要公開存取。
 
 ```powershell
-# Disable public access on AI Services
+# 停用 AI Services 的公開存取
 az cognitiveservices account update -g <rg> -n <ai-services-name> `
     --custom-domain <ai-services-name> `
     --set properties.publicNetworkAccess=Disabled
 
-# Disable public access on ACR
+# 停用 ACR 的公開存取
 az acr update -n <acr-name> --public-network-enabled false
 
-# Disable public access on AI Search
+# 停用 AI Search 的公開存取
 az rest --method PATCH `
     --url "https://management.azure.com/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Search/searchServices/<search-name>?api-version=2024-06-01-preview" `
     --headers Content-Type=application/json `
@@ -210,127 +207,122 @@ The hosted agent continues to work because Foundry routes traffic through the pr
 
 ---
 
-## Bicep Modules Deep Dive
+## Bicep 模組詳解
 
-### Managed Identity (`managed-identity.bicep`)
+### Managed Identity（`managed-identity.bicep`）
 
-Creates a single **User-Assigned Managed Identity** used across all resources. This is the cornerstone of the keyless auth strategy — one identity, all RBAC roles:
+建立單一 **User-Assigned Managed Identity**，供所有資源共用。這是無金鑰驗證策略的基石 — 一個身分識別、所有 RBAC 角色：
 
-| Role | Resource | Purpose |
+| 角色 | 資源 | 用途 |
 |---|---|---|
-| Key Vault Crypto User | Key Vault | Use CMK key for encryption/decryption |
-| Storage Blob Data Contributor | Storage | Read/write blobs |
-| Cognitive Services OpenAI Contributor | AI Services | Call OpenAI models |
-| Search Index Data Reader | AI Search | Query search indexes |
-| Search Service Contributor | AI Search | Manage search service |
-| AcrPull + AcrPush | Container Registry | Pull/push container images |
+| Key Vault Crypto User | Key Vault | 使用 CMK 金鑰進行加密/解密 |
+| Storage Blob Data Contributor | Storage | 讀寫 Blob |
+| Cognitive Services OpenAI Contributor | AI Services | 呼叫 OpenAI 模型 |
+| Search Index Data Reader | AI Search | 查詢搜尋索引 |
+| Search Service Contributor | AI Search | 管理搜尋服務 |
+| AcrPull + AcrPush | Container Registry | 拉取/推送容器映像 |
 
-### Network (`network.bicep`)
+### 網路（`network.bicep`）
 
-Creates a VNET with a private endpoint subnet and **7 private DNS zones**:
+建立包含 Private Endpoint 子網路和 **7 個 Private DNS Zone** 的 VNET：
 
-| DNS Zone | Service |
+| DNS Zone | 服務 |
 |---|---|
 | `privatelink.cognitiveservices.azure.com` | AI Services |
-| `privatelink.openai.azure.com` | OpenAI endpoints |
+| `privatelink.openai.azure.com` | OpenAI 端點 |
 | `privatelink.search.windows.net` | AI Search |
 | `privatelink.blob.core.windows.net` | Storage (Blob) |
 | `privatelink.file.core.windows.net` | Storage (File) |
 | `privatelink.vaultcore.azure.net` | Key Vault |
 | `privatelink.azurecr.io` | Container Registry |
 
-Each DNS zone is linked to the VNET so private endpoint DNS resolution works automatically.
+每個 DNS Zone 皆連結至 VNET，使 Private Endpoint 的 DNS 解析自動生效。
 
-### Key Vault (`keyvault.bicep`)
+### Key Vault（`keyvault.bicep`）
 
-- **RBAC-only** (`enableRbacAuthorization: true`) — no access policies
-- **Purge protection** enabled (required for CMK)
-- Creates a **RSA-2048 CMK key** used by all other services
-- Firewall: `defaultAction: Deny`, `bypass: AzureServices`
+- **僅限 RBAC**（`enableRbacAuthorization: true`）— 不使用存取原則
+- **啟用清除保護**（CMK 所需）
+- 建立 **RSA-2048 CMK 金鑰**，供所有其他服務使用
+- 防火牆：`defaultAction: Deny`、`bypass: AzureServices`
 
-### AI Services (`ai-services.bicep`)
+### AI Services（`ai-services.bicep`）
 
-- **`disableLocalAuth: true`** — API keys completely disabled
-- **`allowProjectManagement: true`** — enables Foundry project creation as child resource
-- CMK encryption with the user-assigned MI
-- Deploys the OpenAI model (default: `gpt-4.1`)
-- Creates a **Foundry project** (child of the AI Services account)
-- Private endpoint with both `cognitiveservices` and `openai` DNS zones
+- **`disableLocalAuth: true`** — 完全停用 API 金鑰
+- **`allowProjectManagement: true`** — 允許以子資源形式建立 Foundry 專案
+- 使用 User-Assigned MI 進行 CMK 加密
+- 部署 OpenAI 模型（預設：`gpt-4.1`）
+- 建立 **Foundry 專案**（作為 AI Services 帳戶的子資源）
+- Private Endpoint 同時包含 `cognitiveservices` 和 `openai` DNS Zone
 
-### AI Search (`ai-search.bicep`)
+### AI Search（`ai-search.bicep`）
 
-- **`disableLocalAuth: true`** — no API keys or query keys
-- **`encryptionWithCmk.enforcement: 'Enabled'`** — all new indexes must use CMK
-- Semantic search enabled (for knowledge base grounding)
+- **`disableLocalAuth: true`** — 無 API 金鑰或查詢金鑰
+- **`encryptionWithCmk.enforcement: 'Enabled'`** — 所有新索引必須使用 CMK
+- 啟用語意搜尋（用於知識庫 Grounding）
 
-> **Note:** CMK enforcement is at the service level. The actual CMK key must be configured when creating indexes via the SDK. See [Azure AI Search CMK docs](https://learn.microsoft.com/en-us/azure/search/search-security-manage-encryption-keys).
+> **注意：** CMK 強制加密是在服務層級設定。實際的 CMK 金鑰必須在透過 SDK 建立索引時配置。請參閱 [Azure AI Search CMK 文件](https://learn.microsoft.com/en-us/azure/search/search-security-manage-encryption-keys)。
 
-### ACR (`acr.bicep`)
+### ACR（`acr.bicep`）
 
-- **Premium SKU** (required for CMK + private endpoints)
-- **Admin user disabled** — pull/push via RBAC only
-- CMK encryption using the unversioned key URI (auto-rotation compatible)
-
----
-
-## Initial Setup vs. Production (Private Endpoints Workflow)
-
-When all services have `publicNetworkAccess: 'Disabled'`, you can't reach them from the public
-internet — that includes your laptop and the Azure AI Foundry portal.
-
-**For initial setup** (pushing images, deploying the agent, verifying in the portal), you have
-three options:
-
-1. **Temporarily enable public access** (simplest — used in this walkthrough)
-   - Open public access → push image → deploy agent → verify → re-disable
-   - See Step 1.5 and Step 5 in the deployment guide above
-
-2. **Use a jumpbox VM inside the VNET** (enterprise standard)
-   - Deploy a VM + Azure Bastion in the VNET
-   - RDP/SSH into the VM to run `az acr build`, `python deploy.py`, and access the portal
-
-3. **Connect via VPN** (enterprise with existing infrastructure)
-   - Point-to-Site VPN gateway (~30 min setup)
-   - Site-to-Site VPN or ExpressRoute (corporate network already connected)
-
-**After the agent is deployed**, it runs inside Foundry's managed infrastructure and communicates
-with all services through the **private endpoints** — it does NOT need public access. You only
-need public access (or VNET access) for management operations.
+- **Premium SKU**（CMK + Private Endpoint 所需）
+- **停用管理員使用者** — 僅透過 RBAC 拉取/推送
+- 使用無版本號的金鑰 URI 進行 CMK 加密（相容自動輪替）
 
 ---
 
-## Troubleshooting
+## 初始設定 vs. 正式環境（Private Endpoint 工作流程）
 
-### Deployment fails on first run
-RBAC role assignments can take 5-10 minutes to propagate. If the deployment fails with a permissions error (especially on Key Vault key creation or CMK configuration), wait 5 minutes and retry.
+當所有服務的 `publicNetworkAccess: 'Disabled'` 時，你無法從公開網際網路存取它們 — 包括你的筆電和 Microsoft Foundry 入口網站。
 
-### ACR push fails
-The ACR has `publicNetworkAccess: 'Disabled'`. To push images:
-- Use `az acr build` to build in the cloud (recommended — works even with private endpoints)
-- Or temporarily enable public access: `az acr update --name <acr> --public-network-enabled true`
+**初始設定時**（推送映像、部署 Agent、在入口網站驗證），你有三個選項：
 
-### Foundry portal shows "unable to connect"
-This is expected when public access is disabled. Access the portal from inside the VNET
-(via VM/VPN) or temporarily enable public access on AI Services.
+1. **暫時開啟公開存取**（最簡單 — 本教學使用此方式）
+   - 開啟公開存取 → 推送映像 → 部署 Agent → 驗證 → 重新停用
+   - 請參閱上方部署指南的步驟 1.5 和步驟 5
 
-### Model deployment not available
-The `gpt-4.1` model may not be available in all regions. Check [model availability](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models) and adjust the `modelDeploymentName` parameter.
+2. **使用 VNET 內的跳板機 VM**（企業標準做法）
+   - 在 VNET 中部署 VM + Azure Bastion
+   - 透過 RDP/SSH 連入 VM 執行 `az acr build`、`python deploy.py`，以及存取入口網站
+
+3. **透過 VPN 連線**（擁有現有基礎設施的企業）
+   - Point-to-Site VPN 閘道（約 30 分鐘設定）
+   - Site-to-Site VPN 或 ExpressRoute（企業網路已連接）
+
+**Agent 部署完成後**，它在 Foundry 的受管理基礎設施內執行，並透過 **Private Endpoint** 與所有服務通訊 — 不需要公開存取。你僅在進行管理操作時才需要公開存取（或 VNET 存取）。
 
 ---
 
-## Security Checklist
+## 疑難排解
 
-After deployment (with public access re-disabled), verify:
+### 首次部署失敗
+RBAC 角色指派可能需要 5-10 分鐘才能生效。如果部署因權限錯誤而失敗（特別是 Key Vault 金鑰建立或 CMK 設定），請等待 5 分鐘後重試。
 
-- [ ] All services show "Private endpoint" in their networking settings
-- [ ] AI Services → Keys and Endpoint → "Local Authentication: Disabled"
-- [ ] AI Search → Keys → no API keys available
-- [ ] Storage → Configuration → "Allow storage account key access: Disabled"
-- [ ] Key Vault → Access configuration → "Permission model: Azure role-based access control"
-- [ ] ACR → Access keys → "Admin user: Disabled"
-- [ ] No public IP addresses on any service
+### ACR 推送失敗
+ACR 的 `publicNetworkAccess: 'Disabled'`。若要推送映像：
+- 使用 `az acr build` 在雲端建置（建議 — 即使有 Private Endpoint 也可運作）
+- 或暫時開啟公開存取：`az acr update --name <acr> --public-network-enabled true`
 
-You can automate this with the included `validate-enterprise.ps1` script:
+### Foundry 入口網站顯示「無法連線」
+公開存取停用時這是預期行為。請從 VNET 內部存取入口網站（透過 VM/VPN），或暫時開啟 AI Services 的公開存取。
+
+### 模型部署不可用
+`gpt-4.1` 模型可能並非在所有地區都可用。請查閱[模型可用性](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models)並調整 `modelDeploymentName` 參數。
+
+---
+
+## 安全性檢核清單
+
+部署完成後（已重新停用公開存取），請驗證：
+
+- [ ] 所有服務的網路設定中顯示「Private Endpoint」
+- [ ] AI Services → 金鑰和端點 → 「本機驗證：已停用」
+- [ ] AI Search → 金鑰 → 無可用的 API 金鑰
+- [ ] Storage → 設定 → 「允許儲存體帳戶金鑰存取：已停用」
+- [ ] Key Vault → 存取設定 → 「權限模型：Azure 角色型存取控制」
+- [ ] ACR → 存取金鑰 → 「管理員使用者：已停用」
+- [ ] 任何服務皆無公用 IP 位址
+
+你可以使用內含的 `validate-enterprise.ps1` 腳本自動驗證：
 
 ```powershell
 .\validate-enterprise.ps1 -ResourceGroup "rg-hr-agent-enterprise"
@@ -338,15 +330,15 @@ You can automate this with the included `validate-enterprise.ps1` script:
 
 ---
 
-## Dependencies
+## 相依套件
 
-Same as Part 1 — the app code doesn't change:
+與第一部分相同 — 應用程式碼不需修改：
 
-| Package | Purpose |
+| 套件 | 用途 |
 |---|---|
-| `azure-ai-agentserver-agentframework` | Hosting adapter |
-| `agent-framework-core` | Core Agent Framework |
-| `agent-framework-azure-ai` | Azure AI client |
-| `agent-framework-azure-ai-search` | AI Search context provider |
-| `azure-ai-projects` | Foundry SDK (deploy.py) |
-| `azure-identity` | Azure authentication (DefaultAzureCredential) |
+| `azure-ai-agentserver-agentframework` | Hosting Adapter |
+| `agent-framework-core` | Agent Framework 核心 |
+| `agent-framework-azure-ai` | Azure AI 用戶端 |
+| `agent-framework-azure-ai-search` | AI Search Context Provider |
+| `azure-ai-projects` | Foundry SDK（deploy.py） |
+| `azure-identity` | Azure 驗證（DefaultAzureCredential） |

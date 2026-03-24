@@ -1,8 +1,8 @@
 name: hosted-agents-on-microsoft-foundry
 description: >
-  An HR specialist agent for Zava Corporation — Enterprise deployment with
-  Customer-Managed Keys, Managed Identity auth, and Private Endpoints.
-  Same agent logic as Part 1, enterprise-grade infrastructure.
+  Zava Corporation 的 HR 專員 Agent — 企業級部署，包含
+  Customer-Managed Keys、Managed Identity 驗證及 Private Endpoint。
+  Agent 邏輯與第一部分相同，基礎設施為企業級。
 metadata:
   authors:
     - Your Name

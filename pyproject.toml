@@ -1,7 +1,7 @@
 [project]
 name = "hosted-agents-on-microsoft-foundry"
 version = "0.1.0"
-description = "HR specialist agent containerized for Microsoft Foundry"
+description = "容器化的 HR 專員 Agent，部署於 Microsoft Foundry"
 requires-python = ">=3.12"
 dependencies = [
     "azure-ai-agentserver-agentframework==1.0.0b15",

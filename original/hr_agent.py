@@ -1,7 +1,7 @@
-"""HR Agent - Original version from FoundryIQ-and-Agent-Framework-demo.
+"""HR Agent — 來自 FoundryIQ-and-Agent-Framework-demo 的原始版本。
 
-This is the ORIGINAL agent using Agent Framework with AzureAISearchContextProvider.
-It runs as a standalone async script — NOT containerized, NOT hosted.
+這是使用 Agent Framework 搭配 AzureAISearchContextProvider 的原始 Agent。
+以獨立非同步腳本的形式執行 — 未容器化、未託管。
 """
 
 import asyncio

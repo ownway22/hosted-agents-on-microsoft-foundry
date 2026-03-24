@@ -1,260 +1,254 @@
-# Containerize Any Agent Framework Agent for Microsoft Foundry
+# 將 Agent Framework Agent 容器化並部署至 Microsoft Foundry
 
-![Architecture Diagram — How to import any Agent as a Hosted Agent on Microsoft Foundry](architecture-diagram-hosted-agents.png)
+![架構圖](architecture-diagram-hosted-agents.png)
 
-This repo is a **template + tutorial** for containerizing a [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) agent and deploying it as a **hosted agent** on [Microsoft Foundry Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents).
+**一句話摘要：** 把你的 [Agent Framework](https://github.com/microsoft/agent-framework) Agent 包進 Docker 容器，推上 Azure Container Registry，再透過 [Microsoft Foundry](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents) 以受管理服務的方式運行。
 
-The included HR agent is just a **sample** — you can replace it with your own agent built on Agent Framework.
-
----
-
-## How It Works
-
-Foundry hosted agents are Docker containers that expose a REST API. Your agent runs inside the container as an HTTP server. Foundry manages scaling, identity, networking, and observability — you just provide the container image.
-
-The key technology is the **hosting adapter** (`from_agent_framework()`), which wraps any `ChatAgent` into a Uvicorn web server on port 8088:
-
-```
-Your ChatAgent  →  from_agent_framework(agent).run()  →  HTTP server (:8088)
-                                                            ├── POST /responses   (OpenAI Responses API)
-                                                            └── GET  /readiness   (health check)
-```
-
-Foundry sends user messages to `POST /responses`, your agent processes them, and the response goes back through the same endpoint.
+> 內附的 HR Agent 僅為範例，你可以替換成任何 Agent Framework Agent。
 
 ---
 
-## Step-by-Step Guide
+## 運作原理
 
-### Step 0: Build your agent (or use the sample)
+Hosted Agent 本質上就是一個 Docker 容器，裡面跑著一台 HTTP 伺服器。Foundry 幫你管擴縮、身分識別和網路 — 你只要給它一個容器映像就好。
 
-The file `original/hr_agent.py` is a **sample agent** — a standalone Agent Framework script that answers HR questions using an Azure AI Search knowledge base. It's included only as a reference to show what a typical agent looks like before containerization.
+核心是 **Hosting Adapter**（`from_agent_framework()`），它把你的 `ChatAgent` 包成 Uvicorn 網頁伺服器：
 
-**You don't need to use this agent.** Replace it with any agent you've built using Microsoft Agent Framework.
+```
+ChatAgent  →  from_agent_framework(agent).run()  →  HTTP 伺服器 (:8088)
+                                                       ├── POST /responses   （接收訊息）
+                                                       └── GET  /readiness   （健康檢查）
+```
 
-### Step 1: Adapt your agent for hosting (`main.py`)
+流程很簡單：Foundry 把使用者訊息送到 `POST /responses` → 你的 Agent 處理 → 回應從同一端點回傳。
 
-`main.py` is where containerization happens. It takes your agent logic and wraps it with the hosting adapter. The file is heavily commented — open it to see exactly what's required vs. optional.
+---
 
-**The 4 things you must do:**
+## 操作步驟
 
-1. Use `ChatAgent` (not `Agent`) — the hosting adapter requires this class
-2. Use sync `DefaultAzureCredential` (not async) — the adapter manages async internally
-3. Build your `ChatAgent` with your instructions and context providers
-4. Call `from_agent_framework(agent).run()` — this starts the HTTP server
+### 步驟 1：準備你的 Agent
 
-**To swap in your own agent**, edit `main.py`:
-- Replace `HR_INSTRUCTIONS` with your agent's system prompt
-- Replace/remove `AzureAISearchContextProvider` with your agent's tools or context providers (or use `context_providers=[]` if none)
-- Update `name` and `id` in the `ChatAgent` constructor
+`original/hr_agent.py` 是一個範例 — 用 Azure AI Search 回答 HR 問題的獨立 Agent。它只是讓你看容器化「之前」的 Agent 長什麼樣子，**不會**在容器裡執行。
 
-### Step 2: Containerize (`Dockerfile`)
+你可以直接用範例，也可以換成任何你自己的 Agent Framework Agent。
 
-The Dockerfile packages your agent into a Docker image:
+### 步驟 2：改寫為 Hosted Agent（`main.py`）
+
+`main.py` 是整個容器化的核心，負責把 Agent 邏輯接上 Hosting Adapter。
+
+**必須做的 4 件事：**
+
+1. 用 `ChatAgent`（不是 `Agent`）
+2. 用**同步的** `DefaultAzureCredential`（Adapter 內部會自己處理非同步）
+3. 設定你的指令和 Context Provider 來建立 `ChatAgent`
+4. 呼叫 `from_agent_framework(agent).run()` 啟動伺服器
+
+**換成你自己的 Agent 時，只要改這些：**
+- `HR_INSTRUCTIONS` → 你的 System Prompt
+- `AzureAISearchContextProvider` → 你需要的 Context Provider（不需要就填 `context_providers=[]`）
+- `ChatAgent` 的 `name` 和 `id`
+
+### 步驟 3：打包為 Docker 映像
 
 ```bash
-# Build the image (always target linux/amd64 — Foundry runs on AMD64)
+# 建置映像（務必指定 linux/amd64 — Foundry 在 AMD64 上執行）
 docker build --platform linux/amd64 -t my-agent:latest .
 ```
 
-The image uses Python 3.12, installs dependencies with `uv` (fast pip alternative), and runs `python main.py` as the entry point. Port 8088 is exposed for the hosting adapter.
+Dockerfile 使用 Python 3.12、`uv` 安裝相依套件，進入點是 `python main.py`，對外開放 port 8088。
 
-### Step 3: Push to Azure Container Registry
-
-You need an ACR to store your container image. Foundry pulls from it at deployment time.
+### 步驟 4：推送至 Azure Container Registry (ACR)
 
 ```bash
-# Create an ACR (one-time)
+# 建立 ACR（僅需一次）
 az acr create --name <your-acr-name> --resource-group <your-rg> --sku Basic
 
-# Login, tag, and push
+# 登入、標記、推送
 az acr login --name <your-acr-name>
 docker tag my-agent:latest <your-acr-name>.azurecr.io/my-agent:latest
 docker push <your-acr-name>.azurecr.io/my-agent:latest
 ```
 
-### Step 4: Register the agent in Foundry (`deploy.py`)
+### 步驟 5：註冊 Agent（`deploy.py`）
 
-`deploy.py` uses the `azure-ai-projects` SDK to tell Foundry about your container:
+`deploy.py` 透過 SDK 告訴 Foundry 你的容器在哪裡、需要什麼環境變數：
 
 ```bash
-# Set environment variables
+# 設定環境變數
 export AZURE_AI_PROJECT_ENDPOINT="https://<your-resource>.services.ai.azure.com/api/projects/<your-project>"
 export CONTAINER_IMAGE="<your-acr-name>.azurecr.io/my-agent:latest"
 export AZURE_SEARCH_ENDPOINT="https://<your-search>.search.windows.net"
 
-# Login and deploy
+# 登入並部署
 az login
-python deploy.py
+uv run deploy.py
 ```
 
-This creates an agent entry in Foundry with the container image, resource allocation (CPU/memory), and environment variables your agent needs at runtime.
+**換成你自己的 Agent 時**，修改 `deploy.py` 裡的 `AGENT_NAME`、`description` 和 `environment_variables`。
 
-**To customize for your agent**, edit `deploy.py`:
-- Change `AGENT_NAME` and `description`
-- Update `environment_variables` to match what your agent reads from `os.getenv()`
+### 步驟 5：啟動 Agent
 
-### Step 5: Start the agent in Foundry
+**Foundry 入口網站** → **Agents** → 找到你的 Agent → **Start**。
 
-Go to the **Foundry portal** → **Agents** → find your agent → click **Start**. Foundry pulls your image from ACR, starts the container, and begins routing requests to it.
+Foundry 會自動拉取映像、啟動容器、開始路由請求。
 
 ---
 
-## Project Structure
+## 專案結構
 
 ```
 hosted-agents-on-microsoft-foundry/
-├── main.py                   # ⭐ Hosted agent entry point (the containerization layer)
+├── main.py              # 容器化進入點 — 接上 Hosting Adapter 的核心檔案
+├── deploy.py            # 透過 SDK 將 Agent 註冊到 Foundry
+├── Dockerfile           # 容器映像定義
+├── requirements.txt     # Python 相依套件（鎖定版本）
+├── pyproject.toml       # Python 專案中繼資料
+├── uv.lock              # uv 鎖定檔（自動產生）
+├── agent.yaml           # 宣告式部署定義（供 azd CLI 使用，選用）
+├── .env.example         # 環境變數範本
 ├── original/
-│   └── hr_agent.py           # 📋 Sample agent code (standalone, for reference only)
-├── Dockerfile                # 🐳 Container image definition
-├── deploy.py                 # 🚀 SDK script to register agent in Foundry
-├── requirements.txt          # 📦 Python dependencies (pinned versions)
-├── agent.yaml                # 📄 Agent metadata (for azd CLI deployment)
-├── .env.example              # 🔑 Environment variable template
+│   └── hr_agent.py      # 範例 Agent 原始碼（僅供參考，不會在容器中執行）
+├── enterprise/          # 企業級架構（CMK、Managed Identity、Private Endpoint）
 ├── .gitignore
 └── README.md
 ```
 
-### What each file does
-
-| File | Purpose | Do you need to edit it? |
+| 檔案 | 用途 | 需要改？ |
 |---|---|---|
-| `main.py` | Wraps your agent with the hosting adapter for containerization | **Yes** — replace the sample agent logic with yours |
-| `original/hr_agent.py` | Sample standalone agent (reference only, not used in the container) | No — it's just a reference |
-| `Dockerfile` | Builds the container image | Rarely — only if you add extra files |
-| `deploy.py` | Registers the agent in Foundry via SDK | **Yes** — update agent name, description, env vars |
-| `requirements.txt` | Pinned Python dependencies | Only if your agent needs additional packages |
-| `agent.yaml` | Declarative agent definition (alternative to deploy.py, for `azd` CLI) | Optional |
-| `.env.example` | Template for environment variables | Copy to `.env` for local dev |
+| `main.py` | 容器化進入點，把 Agent 接上 Hosting Adapter | **是** — 換成你的 Agent 邏輯 |
+| `deploy.py` | 透過 SDK 在 Foundry 註冊 Agent | **是** — 改名稱、描述、環境變數 |
+| `Dockerfile` | 定義容器映像的建置流程 | 通常不用 |
+| `requirements.txt` | 鎖定版本的 Python 相依套件 | 有新套件才改 |
+| `pyproject.toml` | Python 專案中繼資料與建置設定 | 通常不用 |
+| `agent.yaml` | `deploy.py` 的替代方案（供 azd CLI） | 選用 |
+| `.env.example` | 環境變數範本 | 複製為 `.env` 後填值 |
+| `original/hr_agent.py` | 容器化前的範例 Agent | 不用（僅供參考） |
+| `enterprise/` | 企業級架構（詳見 [enterprise/README.md](enterprise/README.md)） | 進階需求才用 |
 
 ---
 
-## What Changed: Original Agent → Hosted Agent
+## 對照表：原始 Agent vs. Hosted Agent
 
-| Aspect | Original (`original/hr_agent.py`) | Hosted (`main.py`) |
+| | 原始（`original/hr_agent.py`） | Hosted（`main.py`） |
 |---|---|---|
-| **Class** | `Agent` | `ChatAgent` |
-| **Execution** | One-shot async script (`asyncio.run`) | Long-running HTTP server (Uvicorn on :8088) |
-| **Credential** | Async `DefaultAzureCredential` | Sync `DefaultAzureCredential` |
-| **Entry point** | `asyncio.run(main())` | `from_agent_framework(agent).run()` |
-| **API** | None — prints to console | REST: `POST /responses`, `GET /readiness` |
-| **Packaging** | Bare Python script | Docker container |
-| **Deployment** | Run locally | Foundry Agent Service (managed) |
-| **Observability** | None | Built-in OpenTelemetry |
+| **類別** | `Agent` | `ChatAgent` |
+| **執行方式** | 單次腳本（`asyncio.run`） | 長駐 HTTP 伺服器（Uvicorn :8088） |
+| **認證** | 非同步 `DefaultAzureCredential` | 同步 `DefaultAzureCredential` |
+| **進入點** | `asyncio.run(main())` | `from_agent_framework(agent).run()` |
+| **對外介面** | 無（輸出至終端機） | REST API |
+| **打包** | Python 腳本 | Docker 容器 |
+| **部署** | 本機執行 | Foundry 受管理服務 |
+| **可觀測性** | 無 | OpenTelemetry |
 
 ---
 
-## Prerequisites
+## 先決條件
 
-### Local tools
+### 本機工具
 
-- **Python 3.12+**
-- **[Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)** — for `az login` and ACR operations
-- **[Docker](https://docs.docker.com/get-docker/)** — for building the container image
-
-### Azure resources
-
-These are the Azure resources required to run this demo end-to-end:
-
-| Resource | What it's for | Required? |
-|---|---|---|
-| **[Azure AI Foundry project](https://learn.microsoft.com/en-us/azure/foundry/foundry-portal/create-project)** | Hosts the agent, provides the project endpoint, and manages agent lifecycle | Yes |
-| **[Azure OpenAI Service](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)** (model deployment) | The LLM that powers your agent (e.g. `gpt-4.1`). Created inside the Foundry project. | Yes |
-| **[Azure Container Registry (ACR)](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-intro)** | Stores the Docker image. Foundry pulls from here at deployment time. | Yes |
-| **[Azure AI Search](https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search)** | Knowledge base for grounding (the HR sample uses index `kb1-hr`). | Only if your agent uses knowledge base grounding |
-| **[Azure Storage Account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview)** | Auto-provisioned by the Foundry project for internal state management. You don't interact with it directly. | Auto-created |
-
-> **RBAC:** The Foundry project's managed identity needs **AcrPull** on the ACR, and if using AI Search, the identity also needs **Search Index Data Reader** on the search service.
-
-### Architecture diagram
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                   Azure AI Foundry                       │
-│                                                          │
-│   ┌──────────────┐     pulls image     ┌─────────────┐  │
-│   │ Hosted Agent  │◄────────────────────│     ACR     │  │
-│   │ (container)   │                     └─────────────┘  │
-│   │  :8088        │                                      │
-│   └──────┬───────┘                                      │
-│          │ calls                                         │
-│          ▼                                               │
-│   ┌──────────────┐     ┌──────────────────┐             │
-│   │ Azure OpenAI  │     │  Azure AI Search  │             │
-│   │ (gpt-4.1)     │     │  (knowledge base) │             │
-│   └──────────────┘     └──────────────────┘             │
-└─────────────────────────────────────────────────────────┘
-```
-
-## Dependencies
-
-| Package | Purpose |
+| 工具 | 用途 |
 |---|---|
-| `azure-ai-agentserver-agentframework` | Hosting adapter (`from_agent_framework()`) |
-| `agent-framework-core` | Core Agent Framework (`ChatAgent`) |
-| `agent-framework-azure-ai` | Azure AI client integration |
-| `agent-framework-azure-ai-search` | Azure AI Search context provider (optional) |
-| `azure-ai-projects` | SDK to register agents in Foundry |
-| `azure-identity` | Azure authentication |
+| **Python 3.12+** | 執行 Agent |
+| **[Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)** | `az login`、ACR 操作 |
+| **[Docker](https://docs.docker.com/get-docker/)** | 建置容器映像 |
 
-All packages are in preview — the `--pre` flag is required when installing.
+### Azure 資源
+
+| 資源 | 用途 | 必要？ |
+|---|---|---|
+| **[Microsoft Foundry 專案](https://learn.microsoft.com/en-us/azure/foundry/foundry-portal/create-project)** | 託管 Agent、管理生命週期 | 是 |
+| **[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)** 模型部署 | 提供 LLM 能力（如 `gpt-4.1`） | 是 |
+| **[ACR](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-intro)** | 儲存 Docker 映像 | 是 |
+| **[Azure AI Search](https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search)** | 知識庫 Grounding | 僅在需要時 |
+| **Storage Account** | Foundry 自動建立，無需操作 | 自動 |
+
+> **RBAC 提醒：** Foundry 的 Managed Identity 需要 ACR 的 **AcrPull** 角色；若用 AI Search，還需 **Search Index Data Reader**。
+
+### 架構圖
+
+```mermaid
+graph TD
+    subgraph foundry ["Microsoft Foundry"]
+        ACR["ACR"]
+        Agent["Hosted Agent<br/>（容器）:8088"]
+        OpenAI["Azure OpenAI<br/>(gpt-4.1)"]
+        Search["Azure AI Search<br/>（知識庫）"]
+
+        ACR -- "拉取映像" --> Agent
+        Agent -- "呼叫" --> OpenAI
+        Agent -- "呼叫" --> Search
+    end
+```
 
 ---
 
-## Run Locally (for testing)
+## 相依套件
+
+| 套件 | 用途 |
+|---|---|
+| `azure-ai-agentserver-agentframework` | Hosting Adapter |
+| `agent-framework-core` | Agent Framework 核心（`ChatAgent`） |
+| `agent-framework-azure-ai` | Azure AI 整合 |
+| `agent-framework-azure-ai-search` | Azure AI Search Context Provider（選用） |
+| `azure-ai-projects` | 在 Foundry 註冊 Agent 的 SDK |
+| `azure-identity` | Azure 驗證 |
+
+> 全部都是預覽版，安裝時要加 `--pre`。
+
+---
+
+## 本機測試
 
 ```bash
-# 1. Set up environment
+# 1. 複製環境變數並填入設定值
 cp .env.example .env
-# Edit .env with your values
 
-# 2. Install dependencies
+# 2. 安裝相依套件
 pip install --pre -r requirements.txt
 
-# 3. Start the agent
+# 3. 啟動 Agent（本機需先 az login）
 python main.py
-# Agent starts on http://localhost:8088
 ```
 
-Test it:
+Agent 跑起來後，用 curl 測試：
+
 ```bash
 curl -X POST http://localhost:8088/responses \
   -H "Content-Type: application/json" \
   -d '{"input": "What is the PTO policy?", "stream": false}'
 ```
 
-> **Note:** Running locally requires Azure CLI authentication (`az login`) since there's no managed identity outside Foundry.
+> **注意：** 本機沒有 Managed Identity，所以要先 `az login` 取得認證。
 
 ---
 
-## Key Concepts
+## 核心概念
 
-### The Hosting Adapter
+### Hosting Adapter
 
-`from_agent_framework()` from `azure-ai-agentserver-agentframework` is the bridge between your Agent Framework code and the Foundry runtime. It:
+`from_agent_framework()` 是 Agent 程式碼與 Foundry 執行環境之間的橋樑：
 
-- Starts a Uvicorn web server on port 8088
-- Translates Foundry request/response formats to Agent Framework data structures
-- Handles conversation management, streaming, and serialization
-- Exports OpenTelemetry traces, metrics, and logs
+- 啟動 port 8088 的 Uvicorn 伺服器
+- 轉換 Foundry 的請求/回應格式
+- 處理對話管理與串流
+- 匯出 OpenTelemetry 追蹤、指標、日誌
 
-### Agent Identity & RBAC
+### Agent 身分識別
 
-- **Before publishing**: the agent runs with the Foundry project's managed identity
-- **After publishing**: Foundry provisions a dedicated agent identity — you must grant RBAC roles for any Azure resources the agent accesses (ACR pull, AI Search reader, etc.)
+- **發佈前**：Agent 用 Foundry 專案的 Managed Identity
+- **發佈後**：Foundry 會建立 Agent 專屬的 Identity — 你需要為它存取的每個 Azure 資源設定 RBAC 角色
 
-### Can I use LangChain / other frameworks?
+### 可以用 LangChain 嗎？
 
-This template is specifically for **Microsoft Agent Framework** agents. The hosting adapter (`from_agent_framework()`) only wraps `ChatAgent` from Agent Framework. For LangChain or other frameworks, you'd need a different hosting approach (e.g. custom FastAPI server exposing the same `/responses` endpoint).
+不行直接用。Hosting Adapter 只接受 Agent Framework 的 `ChatAgent`。如果要用其他框架，需自行建立 HTTP 伺服器並實作 `/responses` 端點。
 
 ---
 
-## References
+## 參考資料
 
-- [What are hosted agents?](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents)
-- [Foundry samples — hosted agents](https://github.com/microsoft-foundry/foundry-samples/tree/main/samples/python/hosted-agents)
-- [Azure Developer CLI ai agent extension](https://aka.ms/azdaiagent/docs)
+- [什麼是 Hosted Agent？](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents)
+- [Foundry 範例 — Hosted Agent](https://github.com/microsoft-foundry/foundry-samples/tree/main/samples/python/hosted-agents)
+- [Azure Developer CLI AI Agent 擴充功能](https://aka.ms/azdaiagent/docs)
 - [Microsoft Agent Framework](https://github.com/microsoft/agent-framework)
-- [Original HR agent source](https://github.com/leyredelacalzada/FoundryIQ-and-Agent-Framework-demo/blob/main/app/backend/agents/hr_agent.py)
-- [Deploy Hosted Agents on Microsoft Foundry: Complete Guide](https://medium.com/@arnaud.tincelin/deploy-hosted-agents-on-microsoft-foundry-complete-guide-0de13e4f835f)
+- [原始 HR Agent 原始碼](https://github.com/leyredelacalzada/FoundryIQ-and-Agent-Framework-demo/blob/main/app/backend/agents/hr_agent.py)
+- [部署 Hosted Agent 完整指南](https://medium.com/@arnaud.tincelin/deploy-hosted-agents-on-microsoft-foundry-complete-guide-0de13e4f835f)

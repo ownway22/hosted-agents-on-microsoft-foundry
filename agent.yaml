@@ -1,5 +1,5 @@
 # Unique identifier/name for this agent
-name: hr-hosted-agent
+name: hosted-agents-on-microsoft-foundry
 # Brief description of what this agent does
 description: >
   An HR specialist agent for Zava Corporation that answers questions about
@@ -16,7 +16,7 @@ metadata:
     - Knowledge Base
     - Azure AI Search
 template:
-  name: hr-hosted-agent
+  name: hosted-agents-on-microsoft-foundry
   # "hosted" = Foundry-managed infrastructure (HOBO)
   kind: hosted
   protocols:

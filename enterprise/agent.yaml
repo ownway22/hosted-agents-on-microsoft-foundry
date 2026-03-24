@@ -1,4 +1,4 @@
-name: hr-hosted-agent
+name: hosted-agents-on-microsoft-foundry
 description: >
   An HR specialist agent for Zava Corporation — Enterprise deployment with
   Customer-Managed Keys, Managed Identity auth, and Private Endpoints.
@@ -15,7 +15,7 @@ metadata:
     - Managed Identity
     - Private Endpoints
 template:
-  name: hr-hosted-agent
+  name: hosted-agents-on-microsoft-foundry
   kind: hosted
   protocols:
     - protocol: responses

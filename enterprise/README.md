@@ -159,12 +159,12 @@ az rest --method PATCH `
 
 ```powershell
 # Option A: Cloud build (recommended — works even with private endpoints, no local Docker needed)
-az acr build --registry <acr-name> --image hr-hosted-agent:latest --platform linux/amd64 .
+az acr build --registry <acr-name> --image hosted-agents-on-microsoft-foundry:latest --platform linux/amd64 .
 
 # Option B: Local build + push (requires Docker Desktop running)
-docker build --platform linux/amd64 -t <acr-login-server>/hr-hosted-agent:latest .
+docker build --platform linux/amd64 -t <acr-login-server>/hosted-agents-on-microsoft-foundry:latest .
 az acr login --name <acr-name>
-docker push <acr-login-server>/hr-hosted-agent:latest
+docker push <acr-login-server>/hosted-agents-on-microsoft-foundry:latest
 ```
 
 ### Step 3: Register the Agent in Foundry
@@ -173,7 +173,7 @@ docker push <acr-login-server>/hr-hosted-agent:latest
 # Set environment variables (values from Step 1 output)
 $env:AZURE_AI_PROJECT_ENDPOINT = "<project-endpoint-from-step-1>"
 $env:AZURE_SEARCH_ENDPOINT = "<search-endpoint-from-step-1>"
-$env:CONTAINER_IMAGE = "<acr-login-server>/hr-hosted-agent:latest"
+$env:CONTAINER_IMAGE = "<acr-login-server>/hosted-agents-on-microsoft-foundry:latest"
 
 # Deploy
 python deploy.py

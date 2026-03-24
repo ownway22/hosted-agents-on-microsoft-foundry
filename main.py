@@ -20,6 +20,9 @@ REQUIRED:
 
 import os
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # --- OpenTelemetry (OPTIONAL — remove if you don't need tracing) ---
 # Instruments Azure SDK calls and exports traces to Azure Monitor / Application Insights.
 from opentelemetry import trace
@@ -88,13 +91,14 @@ def main():
 
     # Step 2: Create context providers (optional — remove if your agent doesn't need them)
     # This example uses Azure AI Search to ground the agent with an HR knowledge base.
-    kb_context = AzureAISearchContextProvider(
-        endpoint=SEARCH_ENDPOINT,
-        knowledge_base_name="kb1-hr",
-        credential=_credential,
-        mode="agentic",
-        knowledge_base_output_mode="answer_synthesis",
-    )
+    # TODO: Uncomment when kb1-hr index is created in AI Search
+    # kb_context = AzureAISearchContextProvider(
+    #     endpoint=SEARCH_ENDPOINT,
+    #     knowledge_base_name="kb1-hr",
+    #     credential=_credential,
+    #     mode="agentic",
+    #     knowledge_base_output_mode="answer_synthesis",
+    # )
 
     # Step 3: Build the ChatAgent
     # - name/id: identifier for this agent
@@ -105,7 +109,7 @@ def main():
         name="hr-agent",
         id="hr-agent",
         instructions=HR_INSTRUCTIONS,
-        context_providers=[kb_context],
+        context_providers=[],  # TODO: Add [kb_context] when AI Search index is ready
     )
 
     # Step 4: Start the hosted agent server (NEVER CHANGES)

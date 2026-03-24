@@ -21,11 +21,11 @@ from azure.ai.projects.models import (
 from azure.identity import DefaultAzureCredential
 
 PROJECT_ENDPOINT = os.environ["AZURE_AI_PROJECT_ENDPOINT"]
-CONTAINER_IMAGE = os.environ["CONTAINER_IMAGE"]  # e.g. yourregistry.azurecr.io/hr-hosted-agent:latest
+CONTAINER_IMAGE = os.environ["CONTAINER_IMAGE"]  # e.g. yourregistry.azurecr.io/hosted-agents-on-microsoft-foundry:latest
 SEARCH_ENDPOINT = os.environ["AZURE_SEARCH_ENDPOINT"]
 MODEL_DEPLOYMENT_NAME = os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-4.1")
 
-AGENT_NAME = "hr-hosted-agent"
+AGENT_NAME = "hosted-agents-on-microsoft-foundry"
 APPLICATIONINSIGHTS_CONNECTION_STRING = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "")
 
 

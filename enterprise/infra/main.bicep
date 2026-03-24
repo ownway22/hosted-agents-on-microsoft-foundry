@@ -40,7 +40,7 @@ param deployerPrincipalId string = ''
 // ---------------------------------------------------------------------------
 var suffix = substring(uniqueString(resourceGroup().id), 0, 8)
 var tags = {
-  project: 'hr-hosted-agent-enterprise'
+  project: 'hosted-agents-on-microsoft-foundry-enterprise'
   environment: 'enterprise'
 }
 

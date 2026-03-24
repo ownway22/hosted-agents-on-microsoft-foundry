@@ -103,7 +103,7 @@ Go to the **Foundry portal** → **Agents** → find your agent → click **Star
 ## Project Structure
 
 ```
-hr-hosted-agent/
+hosted-agents-on-microsoft-foundry/
 ├── main.py                   # ⭐ Hosted agent entry point (the containerization layer)
 ├── original/
 │   └── hr_agent.py           # 📋 Sample agent code (standalone, for reference only)
@@ -257,3 +257,4 @@ This template is specifically for **Microsoft Agent Framework** agents. The host
 - [Azure Developer CLI ai agent extension](https://aka.ms/azdaiagent/docs)
 - [Microsoft Agent Framework](https://github.com/microsoft/agent-framework)
 - [Original HR agent source](https://github.com/leyredelacalzada/FoundryIQ-and-Agent-Framework-demo/blob/main/app/backend/agents/hr_agent.py)
+- [Deploy Hosted Agents on Microsoft Foundry: Complete Guide](https://medium.com/@arnaud.tincelin/deploy-hosted-agents-on-microsoft-foundry-complete-guide-0de13e4f835f)
